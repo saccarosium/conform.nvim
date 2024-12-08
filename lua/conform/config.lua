@@ -1,12 +1,13 @@
 local defaults = {
     formatters_by_ft = {
+        bash = { "shfmt" },
         c = { lsp_fallback = "prefer" },
         cpp = { lsp_fallback = "prefer" },
+        lua = { "stylua" },
         python = { "black" },
         rust = { lsp_fallback = "prefer" },
         sh = { "shfmt" },
-        bash = { "shfmt" },
-        lua = { "stylua" },
+        typst = { "typstyle" },
     },
     formatters = {},
     notify_on_error = true,
