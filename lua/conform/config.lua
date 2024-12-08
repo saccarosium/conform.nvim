@@ -34,7 +34,7 @@ local function get_config()
         end
         for k in pairs(conf) do
             if type(k) == "string" then
-                notify(
+                vim.notify(
                     string.format(
                         'conform.setup: the "_" and "*" keys in formatters_by_ft do not support configuring format options, such as "%s"',
                         k
@@ -51,7 +51,7 @@ local function get_config()
     check_for_default_opts(config.formatters_by_ft["*"])
 
     if config.log_level then
-        require("conform.log").level = opts.log_level
+        require("conform.log").level = config.log_level
     end
 
     if type(config.format_on_save) == "boolean" then
