@@ -41,13 +41,6 @@ local function merge_default_opts(a, b, opts)
     return a
 end
 
----@param opts? conform.setupOpts
----@param obj any
----@return boolean
-local function is_empty_table(obj)
-    return type(obj) == "table" and vim.tbl_isempty(obj)
-end
-
 ---Get the configured formatter filetype for a buffer
 ---@param bufnr? integer
 ---@return nil|string filetype or nil if no formatter is configured. Can be "_".
@@ -61,7 +54,7 @@ local function get_matching_filetype(bufnr)
         local ft_formatters = M.formatters_by_ft[filetype]
         -- Sometimes people put an empty table here, and that should not count as configuring formatters
         -- for a filetype.
-        if ft_formatters and not is_empty_table(ft_formatters) then
+        if ft_formatters and not vim.tbl_isempty(ft_formatters) then
             return filetype
         end
     end
@@ -70,26 +63,16 @@ end
 ---@private
 ---@param bufnr? integer
 ---@return string[]
-M.list_formatters_for_buffer = function(bufnr)
+function M.list_formatters_for_buffer(bufnr)
     if not bufnr or bufnr == 0 then
         bufnr = vim.api.nvim_get_current_buf()
     end
     local formatters = {}
     local seen = {}
 
-    local function dedupe_formatters(names, collect)
+    local dedupe_formatters = function(names, collect)
         for _, name in ipairs(names) do
-            if type(name) == "table" then
-                notify_once(
-                    "deprecated[conform]: The nested {} syntax to run the first formatter has been replaced by the stop_after_first option (see :help conform.format).\nSupport for the old syntax will be dropped on 2025-01-01.",
-                    vim.log.levels.WARN
-                )
-                local alternation = {}
-                dedupe_formatters(name, alternation)
-                if not vim.tbl_isempty(alternation) then
-                    table.insert(collect, alternation)
-                end
-            elseif not seen[name] then
+            if not seen[name] then
                 table.insert(collect, name)
                 seen[name] = true
             end
@@ -102,6 +85,7 @@ M.list_formatters_for_buffer = function(bufnr)
         table.insert(filetypes, matching_filetype)
     end
     table.insert(filetypes, "*")
+
     for _, ft in ipairs(filetypes) do
         local ft_formatters = M.formatters_by_ft[ft]
         if ft_formatters then
@@ -170,11 +154,11 @@ end
 ---@param names conform.FiletypeFormatterInternal
 ---@param bufnr integer
 ---@param warn_on_missing boolean
----@param stop_after_first boolean
 ---@return conform.FormatterInfo[]
-M.resolve_formatters = function(names, bufnr, warn_on_missing, stop_after_first)
+function M.resolve_formatters(names, bufnr, warn_on_missing)
     local all_info = {}
-    local function add_info(info, warn)
+
+    local add_info = function(info, warn)
         if info.available then
             table.insert(all_info, info)
         elseif warn then
@@ -187,21 +171,9 @@ M.resolve_formatters = function(names, bufnr, warn_on_missing, stop_after_first)
         if type(name) == "string" then
             local info = M.get_formatter_info(name, bufnr)
             add_info(info, warn_on_missing)
-        else
-            notify_once(
-                "deprecated[conform]: The nested {} syntax to run the first formatter has been replaced by the stop_after_first option (see :help conform.format).\nSupport for the old syntax will be dropped on 2025-01-01.",
-                vim.log.levels.WARN
-            )
-            -- If this is an alternation, take the first one that's available
-            for i, v in ipairs(name) do
-                local info = M.get_formatter_info(v, bufnr)
-                if add_info(info, warn_on_missing and i == #name) then
-                    break
-                end
-            end
         end
 
-        if stop_after_first and #all_info > 0 then
+        if not vim.tbl_isempty(all_info) then
             break
         end
     end
@@ -229,7 +201,7 @@ local has_notified_ft_no_formatters = {}
 ---@param opts? conform.FormatOpts
 ---@param callback? fun(err: nil|string, did_edit: nil|boolean) Called once formatting has completed
 ---@return boolean True if any formatters were attempted
-M.format = function(opts, callback)
+function M.format(opts, callback)
     if vim.fn.has("nvim-0.10") == 0 then
         notify_once("conform.nvim requires Neovim 0.10+", vim.log.levels.ERROR)
         if callback then
@@ -272,19 +244,14 @@ M.format = function(opts, callback)
     if not opts.range and mode == "v" or mode == "V" then
         opts.range = range_from_selection(opts.bufnr, mode)
     end
-    callback = callback or function(_err, _did_edit) end
+    callback = callback or function(_, _) end
     local errors = require("conform.errors")
     local log = require("conform.log")
     local lsp_format = require("conform.lsp_format")
     local runner = require("conform.runner")
 
     local formatter_names = opts.formatters or M.list_formatters_for_buffer(opts.bufnr)
-    local formatters = M.resolve_formatters(
-        formatter_names,
-        opts.bufnr,
-        not opts.quiet and has_explicit_formatters,
-        opts.stop_after_first
-    )
+    local formatters = M.resolve_formatters(formatter_names, opts.bufnr, not opts.quiet and has_explicit_formatters)
     local has_lsp = has_lsp_formatter(opts)
 
     ---Handle errors and maybe run LSP formatting after cli formatters complete
@@ -392,7 +359,7 @@ end
 ---@param callback? fun(err: nil|conform.Error, lines: nil|string[]) Called once formatting has completed
 ---@return nil|conform.Error error Only present if async = false
 ---@return nil|string[] new_lines Only present if async = false
-M.format_lines = function(formatter_names, lines, opts, callback)
+function M.format_lines(formatter_names, lines, opts, callback)
     ---@type {timeout_ms: integer, bufnr: integer, async: boolean, quiet: boolean, stop_after_first: boolean}
     opts = vim.tbl_extend("keep", opts or {}, {
         timeout_ms = 1000,
@@ -401,11 +368,11 @@ M.format_lines = function(formatter_names, lines, opts, callback)
         quiet = false,
         stop_after_first = false,
     })
-    callback = callback or function(_err, _lines) end
+    callback = callback or function(_, _) end
     local errors = require("conform.errors")
     local log = require("conform.log")
     local runner = require("conform.runner")
-    local formatters = M.resolve_formatters(formatter_names, opts.bufnr, not opts.quiet, opts.stop_after_first)
+    local formatters = M.resolve_formatters(formatter_names, opts.bufnr, not opts.quiet)
     if vim.tbl_isempty(formatters) then
         callback(nil, lines)
         return
@@ -413,7 +380,7 @@ M.format_lines = function(formatter_names, lines, opts, callback)
 
     ---@param err? conform.Error
     ---@param new_lines? string[]
-    local function handle_err(err, new_lines)
+    local handle_err = function(err, new_lines)
         if err then
             local level = errors.level_for_code(err.code)
             log.log(level, err.message)
@@ -435,7 +402,7 @@ end
 ---Retrieve the available formatters for a buffer
 ---@param bufnr? integer
 ---@return conform.FormatterInfo[]
-M.list_formatters = function(bufnr)
+function M.list_formatters(bufnr)
     if not bufnr or bufnr == 0 then
         bufnr = vim.api.nvim_get_current_buf()
     end
@@ -449,7 +416,7 @@ end
 ---@return boolean lsp Will use LSP formatter
 ---@note
 --- This accounts for stop_after_first, lsp fallback logic, etc.
-M.list_formatters_to_run = function(bufnr)
+function M.list_formatters_to_run(bufnr)
     if not bufnr or bufnr == 0 then
         bufnr = vim.api.nvim_get_current_buf()
     end
@@ -479,25 +446,16 @@ end
 
 ---List information about all filetype-configured formatters
 ---@return conform.FormatterInfo[]
-M.list_all_formatters = function()
+function M.list_all_formatters()
     local formatters = {}
+
     for _, ft_formatters in pairs(M.formatters_by_ft) do
         if type(ft_formatters) == "function" then
             ft_formatters = ft_formatters(0)
         end
 
         for _, formatter in ipairs(ft_formatters) do
-            if type(formatter) == "table" then
-                notify_once(
-                    "deprecated[conform]: The nested {} syntax to run the first formatter has been replaced by the stop_after_first option (see :help conform.format).\nSupport for the old syntax will be dropped on 2025-01-01.",
-                    vim.log.levels.WARN
-                )
-                for _, v in ipairs(formatter) do
-                    formatters[v] = true
-                end
-            else
-                formatters[formatter] = true
-            end
+            formatters[formatter] = true
         end
     end
 
@@ -511,6 +469,7 @@ M.list_all_formatters = function()
     table.sort(all_info, function(a, b)
         return a.name < b.name
     end)
+
     return all_info
 end
 
@@ -518,7 +477,7 @@ end
 ---@param formatter string
 ---@param bufnr? integer
 ---@return nil|conform.FormatterConfig
-M.get_formatter_config = function(formatter, bufnr)
+function M.get_formatter_config(formatter, bufnr)
     if not bufnr or bufnr == 0 then
         bufnr = vim.api.nvim_get_current_buf()
     end
@@ -527,6 +486,7 @@ M.get_formatter_config = function(formatter, bufnr)
     if type(override) == "function" then
         override = override(bufnr)
     end
+
     if override and override.command and override.format then
         local msg = string.format("Formatter '%s' cannot define both 'command' and 'format' function", formatter)
         notify_once(msg, vim.log.levels.ERROR)
@@ -562,6 +522,7 @@ M.get_formatter_config = function(formatter, bufnr)
     if config and config.stdin == nil then
         config.stdin = true
     end
+
     return config
 end
 
@@ -569,12 +530,12 @@ end
 ---@param formatter string The name of the formatter
 ---@param bufnr? integer
 ---@return conform.FormatterInfo
-M.get_formatter_info = function(formatter, bufnr)
+function M.get_formatter_info(formatter, bufnr)
     if not bufnr or bufnr == 0 then
         bufnr = vim.api.nvim_get_current_buf()
     end
-    local config = M.get_formatter_config(formatter, bufnr)
-    if not config then
+    local formatter_config = M.get_formatter_config(formatter, bufnr)
+    if not formatter_config then
         return {
             name = formatter,
             command = formatter,
@@ -584,13 +545,13 @@ M.get_formatter_info = function(formatter, bufnr)
         }
     end
 
-    local ctx = require("conform.runner").build_context(bufnr, config)
+    local ctx = require("conform.runner").build_context(bufnr, formatter_config)
 
     local available = true
     local available_msg = nil
-    if config.format then
+    if formatter_config.format then
         ---@cast config conform.LuaFormatterConfig
-        if config.condition and not config:condition(ctx) then
+        if formatter_config.condition and not formatter_config:condition(ctx) then
             available = false
             available_msg = "Condition failed"
         end
@@ -602,24 +563,24 @@ M.get_formatter_info = function(formatter, bufnr)
         }
     end
 
-    local command = config.command
+    local command = formatter_config.command
     if type(command) == "function" then
         ---@cast config conform.JobFormatterConfig
-        command = command(config, ctx)
+        command = command(formatter_config, ctx)
     end
 
     if vim.fn.executable(command) == 0 then
         available = false
         available_msg = "Command not found"
-    elseif config.condition and not config.condition(config, ctx) then
+    elseif formatter_config.condition and not formatter_config.condition(formatter_config, ctx) then
         available = false
         available_msg = "Condition failed"
     end
     local cwd = nil
-    if config.cwd then
+    if formatter_config.cwd then
         ---@cast config conform.JobFormatterConfig
-        cwd = config.cwd(config, ctx)
-        if available and not cwd and config.require_cwd then
+        cwd = formatter_config.cwd(formatter_config, ctx)
+        if available and not cwd and formatter_config.require_cwd then
             available = false
             available_msg = "Root directory not found"
         end
@@ -633,62 +594,6 @@ M.get_formatter_info = function(formatter, bufnr)
         available = available,
         available_msg = available_msg,
     }
-end
-
----Check if the buffer will use LSP formatting when lsp_format = "fallback"
----@deprecated
----@param options? table Options passed to |vim.lsp.buf.format|
----@return boolean
-M.will_fallback_lsp = function(options)
-    notify_once(
-        "deprecated[conform]: will_fallback_lsp is deprecated. Use list_formatters_to_run instead.\nThis method will be removed on 2025-01-01.",
-        vim.log.levels.WARN
-    )
-    options = vim.tbl_deep_extend("keep", options or {}, {
-        bufnr = vim.api.nvim_get_current_buf(),
-    })
-    if options.bufnr == 0 then
-        options.bufnr = vim.api.nvim_get_current_buf()
-    end
-    return not has_filetype_formatters(options.bufnr) and has_lsp_formatter(options)
-end
-
-M.formatexpr = function(opts)
-    -- Change the defaults slightly from conform.format
-    opts = vim.tbl_deep_extend("keep", opts or {}, {
-        timeout_ms = 500,
-        lsp_format = "fallback",
-        bufnr = vim.api.nvim_get_current_buf(),
-    })
-    -- Force async = false
-    opts.async = false
-    if vim.tbl_contains({ "i", "R", "ic", "ix" }, vim.fn.mode()) then
-        -- `formatexpr` is also called when exceeding `textwidth` in insert mode
-        -- fall back to internal formatting
-        return 1
-    end
-
-    local start_lnum = vim.v.lnum
-    local end_lnum = start_lnum + vim.v.count - 1
-
-    if start_lnum <= 0 or end_lnum <= 0 then
-        return 0
-    end
-    local end_line = vim.fn.getline(end_lnum)
-    local end_col = end_line:len()
-
-    if vim.v.count == vim.fn.line("$") then
-        -- Whole buffer is selected; use buffer formatting
-        opts.range = nil
-    else
-        opts.range = {
-            start = { start_lnum, 0 },
-            ["end"] = { end_lnum, end_col },
-        }
-    end
-
-    M.format(opts)
-    return 0
 end
 
 return M
