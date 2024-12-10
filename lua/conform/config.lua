@@ -8,6 +8,7 @@ local defaults = {
         rust = { lsp_fallback = "prefer" },
         sh = { "shfmt" },
         typst = { "typstyle" },
+        json = { "prettierd", "prettier", "jq", "fixjson" },
     },
     formatters = {},
     notify_on_error = true,
@@ -26,36 +27,10 @@ local function get_config()
     end
 
     assert(is_dict_like_table(user_config), "Malformed config")
-
-    ---@param conf? conform.FiletypeFormatter
-    local function check_for_default_opts(conf)
-        if not conf or type(conf) ~= "table" then
-            return
-        end
-        for k in pairs(conf) do
-            if type(k) == "string" then
-                vim.notify(
-                    string.format(
-                        'conform.setup: the "_" and "*" keys in formatters_by_ft do not support configuring format options, such as "%s"',
-                        k
-                    ),
-                    vim.log.levels.WARN
-                )
-                break
-            end
-        end
-    end
-
     local config = vim.tbl_deep_extend("force", defaults, user_config)
-    check_for_default_opts(config.formatters_by_ft["_"])
-    check_for_default_opts(config.formatters_by_ft["*"])
 
     if config.log_level then
         require("conform.log").level = config.log_level
-    end
-
-    if type(config.format_on_save) == "boolean" then
-        config.format_on_save = {}
     end
 
     return config

@@ -1,4 +1,4 @@
-if vim.fn.has("nvim-0.10") == 0 then
+if vim.fn.has("nvim-0.10") ~= 1 then
     vim.notify("conform.nvim requires Neovim 0.10+", vim.log.levels.ERROR)
     return
 end
@@ -24,8 +24,10 @@ vim.api.nvim_create_user_command("Conform", function(args)
 end, {
     nargs = 1,
     complete = function(lead, _, _)
-        return vim.tbl_filter(function(x)
-            return x:match(lead)
-        end, { "fmt", "info" })
+        return vim.iter({ "fmt", "info" })
+            :filter(function(x)
+                return x:match(lead)
+            end)
+            :totable()
     end,
 })
